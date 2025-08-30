@@ -1,55 +1,35 @@
-#include <metal_stdlib>
-using namespace metal;
+#include "Common.metal"
 
-// Must match your existing vertex output
-struct VSOut {
-    float4 pos [[position]];
-    float2 uv;
-};
-
-struct Uniforms {
-    float time;
-    float2 res;
-    float bass, mid, high;
-    float fade;
-};
-
-// ---------- Shared helpers ----------
-static inline float2 normSquare(float2 uv, float2 res) {
-    return (uv * res) / min(res.x, res.y);
-}
-
-// ---------- Scene A ----------
+// Scene A
 fragment float4 feedbackFragA(
-    VSOut in                        [[stage_in]],
-    constant Uniforms& u            [[buffer(0)]],
-    texture2d<float> prevTex        [[texture(0)]],
-    sampler s                       [[sampler(0)]]
-) {
+    VSOut in [[stage_in]],
+    constant Uniforms& u [[buffer(0)]],
+    texture2d<float> prevTex [[texture(0)]],
+    sampler s [[sampler(0)]]
+){
     float2 uv = in.uv;
-    float2 p  = normSquare(uv, u.res);
-    p = abs(fract(p + 0.5) - 0.5);
-    float wob = 0.02 * sin(6.2831*(p.x+p.y) + u.time*2.0);
+    float2 p  = centeredSquare(uv, u.res);
+    float2 f  = abs(fract(p + 0.5) - 0.5);
+    float wob = 0.02 * sin(6.2831*(f.x+f.y) + u.time*2.0);
     float3 col = 0.5 + 0.5 * float3(
-        sin(12.0*p.x + u.time*2.0 + u.bass*2.5),
-        sin(11.0*p.y + u.time*1.7 + u.mid *2.5),
-        sin(10.0*(p.x+p.y) + u.time*1.3 + u.high*2.5)
+        sin(12.0*f.x + u.time*2.0 + u.bass*2.5),
+        sin(11.0*f.y + u.time*1.7 + u.mid *2.5),
+        sin(10.0*(f.x+f.y) + u.time*1.3 + u.high*2.5)
     );
     float3 trail = prevTex.sample(s, uv + wob).rgb * 0.965;
     return float4(mix(trail, col, 0.25 * u.fade), 1.0);
 }
 
-// ---------- Scene B (radial) ----------
+// Scene B
 fragment float4 feedbackFragB(
-    VSOut in                        [[stage_in]],
-    constant Uniforms& u            [[buffer(0)]],
-    texture2d<float> prevTex        [[texture(0)]],
-    sampler s                       [[sampler(0)]]
-) {
+    VSOut in [[stage_in]],
+    constant Uniforms& u [[buffer(0)]],
+    texture2d<float> prevTex [[texture(0)]],
+    sampler s [[sampler(0)]]
+){
     float2 uv = in.uv;
-    float2 p  = normSquare(uv, u.res) - 0.5;
-    float r = length(p);
-    float a = atan2(p.y, p.x);
+    float2 p  = centeredSquare(uv, u.res);
+    float r = length(p), a = atan2(p.y, p.x);
     float wob = 0.02 * sin(8.0*a + u.time*1.8);
     float3 col = 0.5 + 0.5 * float3(
         sin(20.0*r + u.time*2.0),
@@ -60,15 +40,15 @@ fragment float4 feedbackFragB(
     return float4(mix(trail, col, 0.22 * u.fade), 1.0);
 }
 
-// ---------- Scene C (grid warp) ----------
+// Scene C
 fragment float4 feedbackFragC(
-    VSOut in                        [[stage_in]],
-    constant Uniforms& u            [[buffer(0)]],
-    texture2d<float> prevTex        [[texture(0)]],
-    sampler s                       [[sampler(0)]]
-) {
+    VSOut in [[stage_in]],
+    constant Uniforms& u [[buffer(0)]],
+    texture2d<float> prevTex [[texture(0)]],
+    sampler s [[sampler(0)]]
+){
     float2 uv = in.uv;
-    float2 p  = normSquare(uv, u.res);
+    float2 p  = centeredSquare(uv, u.res);
     float2 q  = p + 0.03 * sin(float2(0.0,1.0)*u.time + float2(p.y, p.x)*8.0);
     float3 col = 0.5 + 0.5 * float3(
         sin(9.0*q.x + u.time*2.4),
