@@ -2,11 +2,10 @@ import Metal
 import MetalKit
 import simd
 
-// Add near top of Renderer class:
+// --- rotation + discovery config ---
 private let SWITCH_SEC: Float = 5.0
-private let sceneNames = ["feedbackFragA", "feedbackFragB", "feedbackFragC"]
-private var feedbackPipelines: [MTLRenderPipelineState] = []
-
+private let scenePrefixes = ["scene_", "feedbackFrag"]   // fragments with these prefixes will be picked
+private var scenePipelines: [MTLRenderPipelineState] = []  // built once at init
 
 // ---------- File-scope helpers (no `self`) ----------
 private func buildPipeline(device: MTLDevice,
@@ -35,7 +34,7 @@ private func makeLinearClampSampler(device: MTLDevice) -> MTLSamplerState {
     return s
 }
 
-// ---------- Uniforms ----------
+// ---------- Uniforms (must match .metal) ----------
 struct Uniforms {
     var time: Float
     var res: SIMD2<Float>
@@ -50,7 +49,6 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let device: MTLDevice
     private let queue: MTLCommandQueue
     private let library: MTLLibrary
-    private let pipelineFeedback: MTLRenderPipelineState
     private let pipelineBlit: MTLRenderPipelineState
     private let sampler: MTLSamplerState
     private weak var view: MTKView?
@@ -72,29 +70,43 @@ final class Renderer: NSObject, MTKViewDelegate {
         guard let q = dev.makeCommandQueue() else { fatalError("No command queue.") }
         self.queue = q
 
-        // Create library as a LOCAL, then assign; also reuse the local to build pipelines
+        // Create library as a LOCAL, then assign; reuse local to build pipelines
         let lib: MTLLibrary
         do { lib = try dev.makeDefaultLibrary(bundle: .main) }
         catch { fatalError("Failed to create default library: \(error)") }
         self.library = lib
 
         let px = view.colorPixelFormat
-        // Build pipelines via file-scope helper (no `self` involved)
-        self.pipelineFeedback = buildPipeline(device: dev, library: lib, pixelFormat: px,
-                                              vertex: "fullscreenVS", fragment: "feedbackFrag")
 
-        // Build a pipeline for each scene in Scenes.metal
-        feedbackPipelines = sceneNames.map { frag in
+        // --- Auto-discover fragment entry points by prefix across all .metal files ---
+        let allNames = lib.functionNames
+        let fragNames = allNames.compactMap { name -> String? in
+            // keep only names with allowed prefixes
+            guard scenePrefixes.first(where: { name.hasPrefix($0) }) != nil else { return nil }
+            // verify it's a fragment function
+            guard let f = lib.makeFunction(name: name), f.functionType == .fragment else { return nil }
+            return name
+        }.sorted()
+
+        print("Discovered scene fragment names: \(fragNames)")
+
+        // Build a pipeline per discovered scene
+        scenePipelines = fragNames.map { frag in
             buildPipeline(device: dev, library: lib, pixelFormat: px,
-                        vertex: "fullscreenVS", fragment: frag)
+                          vertex: "fullscreenVS", fragment: frag)
         }
 
-        // (Keep your existing blit pipeline as-is)
+        // Fallback if nothing matched (ensure app still runs)
+        if scenePipelines.isEmpty {
+            scenePipelines = [buildPipeline(device: dev, library: lib, pixelFormat: px,
+                                            vertex: "fullscreenVS", fragment: "feedbackFragA")]
+        }
+
+        // Blit pipeline (present low-res texture to screen)
         self.pipelineBlit = buildPipeline(device: dev, library: lib, pixelFormat: px,
-                                        vertex: "fullscreenVS", fragment: "blitFrag")
+                                          vertex: "fullscreenVS", fragment: "blitFrag")
 
-
-        // Sampler via helper (no `self`)
+        // Sampler
         self.sampler = makeLinearClampSampler(device: dev)
 
         super.init()
@@ -145,8 +157,10 @@ final class Renderer: NSObject, MTKViewDelegate {
         ensureOffscreenTextures(for: view.drawableSize)
         guard let texA = texA, let texB = texB else { return }
 
-        // Uniforms
+        // Time (single definition; reused for uniforms + scene index)
         let t = Float(CACurrentMediaTime() - startTime)
+
+        // Uniforms
         var u = Uniforms(
             time: t,
             res: SIMD2<Float>(Float(view.drawableSize.width), Float(view.drawableSize.height)),
@@ -157,16 +171,16 @@ final class Renderer: NSObject, MTKViewDelegate {
         let prev = useAasPrev ? texA : texB
         let next = useAasPrev ? texB : texA
 
-        // pick scene by time (every 5s)
-        let idx = max(0, Int(floor(t / SWITCH_SEC)) % feedbackPipelines.count)
+        // Pick scene index by time
+        let idx = (scenePipelines.isEmpty ? 0 : Int(floor(t / SWITCH_SEC)) % scenePipelines.count)
 
         // Pass 1: offscreen feedback → next
         if let rp = offscreenPassDescriptor(target: next),
-        let enc = cmd.makeRenderCommandEncoder(descriptor: rp) {
-            enc.setRenderPipelineState(feedbackPipelines[idx])   // ← changed
+           let enc = cmd.makeRenderCommandEncoder(descriptor: rp) {
+            enc.setRenderPipelineState(scenePipelines[idx])   // ← auto-discovered scene
             enc.setVertexBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
             enc.setFragmentBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
-            enc.setFragmentTexture(prev, index: 0)
+            enc.setFragmentTexture(prev, index: 0)            // safe if unused by a scene
             enc.setFragmentSamplerState(sampler, index: 0)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
             enc.endEncoding()
