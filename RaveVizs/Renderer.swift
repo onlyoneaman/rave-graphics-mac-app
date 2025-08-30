@@ -3,7 +3,7 @@ import MetalKit
 import simd
 
 // --- rotation + discovery config ---
-private let SWITCH_SEC: Float = 5.0
+private let SWITCH_SEC: Float = 15.0
 private let scenePrefixes = ["scene_", "feedbackFrag"]   // fragments with these prefixes will be picked
 private var scenePipelines: [MTLRenderPipelineState] = []  // built once at init
 
