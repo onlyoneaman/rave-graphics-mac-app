@@ -61,6 +61,9 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var lastDrawableSize: CGSize = .zero
     private let renderScale: CGFloat = 0.7
 
+    private var lastSceneIndex: Int = -1
+    private var fragNames: [String] = []
+
     init(view: MTKView) {
         self.view = view
 
@@ -80,7 +83,7 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         // --- Auto-discover fragment entry points by prefix across all .metal files ---
         let allNames = lib.functionNames
-        let fragNames = allNames.compactMap { name -> String? in
+        self.fragNames = allNames.compactMap { name -> String? in
             // keep only names with allowed prefixes
             guard scenePrefixes.first(where: { name.hasPrefix($0) }) != nil else { return nil }
             // verify it's a fragment function
@@ -88,7 +91,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             return name
         }.sorted()
 
-        print("Discovered scene fragment names: \(fragNames)")
+        print("Discovered scene fragment names: \(self.fragNames)")
 
         // Build a pipeline per discovered scene
         scenePipelines = fragNames.map { frag in
@@ -173,6 +176,15 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         // Pick scene index by time
         let idx = (scenePipelines.isEmpty ? 0 : Int(floor(t / SWITCH_SEC)) % scenePipelines.count)
+
+        if idx != lastSceneIndex {
+            if idx < self.fragNames.count {
+                print("Switched to scene: \(self.fragNames[idx])")
+            } else {
+                print("Switched to scene index \(idx)")
+            }
+            lastSceneIndex = idx
+        }
 
         // Pass 1: offscreen feedback → next
         if let rp = offscreenPassDescriptor(target: next),
