@@ -2,6 +2,12 @@ import Metal
 import MetalKit
 import simd
 
+// Add near top of Renderer class:
+private let SWITCH_SEC: Float = 5.0
+private let sceneNames = ["feedbackFragA", "feedbackFragB", "feedbackFragC"]
+private var feedbackPipelines: [MTLRenderPipelineState] = []
+
+
 // ---------- File-scope helpers (no `self`) ----------
 private func buildPipeline(device: MTLDevice,
                            library: MTLLibrary,
@@ -76,8 +82,17 @@ final class Renderer: NSObject, MTKViewDelegate {
         // Build pipelines via file-scope helper (no `self` involved)
         self.pipelineFeedback = buildPipeline(device: dev, library: lib, pixelFormat: px,
                                               vertex: "fullscreenVS", fragment: "feedbackFrag")
-        self.pipelineBlit     = buildPipeline(device: dev, library: lib, pixelFormat: px,
-                                              vertex: "fullscreenVS", fragment: "blitFrag")
+
+        // Build a pipeline for each scene in Scenes.metal
+        feedbackPipelines = sceneNames.map { frag in
+            buildPipeline(device: dev, library: lib, pixelFormat: px,
+                        vertex: "fullscreenVS", fragment: frag)
+        }
+
+        // (Keep your existing blit pipeline as-is)
+        self.pipelineBlit = buildPipeline(device: dev, library: lib, pixelFormat: px,
+                                        vertex: "fullscreenVS", fragment: "blitFrag")
+
 
         // Sampler via helper (no `self`)
         self.sampler = makeLinearClampSampler(device: dev)
@@ -142,10 +157,13 @@ final class Renderer: NSObject, MTKViewDelegate {
         let prev = useAasPrev ? texA : texB
         let next = useAasPrev ? texB : texA
 
+        // pick scene by time (every 5s)
+        let idx = max(0, Int(floor(t / SWITCH_SEC)) % feedbackPipelines.count)
+
         // Pass 1: offscreen feedback → next
         if let rp = offscreenPassDescriptor(target: next),
-           let enc = cmd.makeRenderCommandEncoder(descriptor: rp) {
-            enc.setRenderPipelineState(pipelineFeedback)
+        let enc = cmd.makeRenderCommandEncoder(descriptor: rp) {
+            enc.setRenderPipelineState(feedbackPipelines[idx])   // ← changed
             enc.setVertexBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
             enc.setFragmentBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
             enc.setFragmentTexture(prev, index: 0)
