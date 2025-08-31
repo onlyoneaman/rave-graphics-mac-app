@@ -18,7 +18,6 @@ inline float4 scene_tunnel_shade(float2 uv, float t, float2 res) {
     return float4(base * stripes * depth, 1.0);
 }
 
-// --- fragment entry point (discovered by prefix "scene_") ---
 fragment float4 scene_tunnel(
     VSOut in [[stage_in]],
     constant Uniforms& u [[buffer(0)]]

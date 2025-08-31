@@ -95,7 +95,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             return name
         }.sorted()
 
-        print("Length of fragNames: \(self.fragNames.count)")
+        print("fragNames: \(self.fragNames)")
 
         scenePipelines = fragNames.map { frag in
             buildPipeline(device: dev, library: lib, pixelFormat: px,
@@ -154,7 +154,6 @@ final class Renderer: NSObject, MTKViewDelegate {
         cmd.commit()
     }
 
-    // MARK: - Occurrence-based pick (min count, random tie; avoid immediate repeat if possible)
     private func pickNextSceneIndex(excluding current: Int?) -> Int {
         let n = scenePipelines.count
         guard n > 0 else { return 0 }
